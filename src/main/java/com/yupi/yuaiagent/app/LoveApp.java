@@ -80,21 +80,21 @@ public class LoveApp {
         return content;
     }
 
-//    /**
-//     * AI 基础对话（支持多轮对话记忆，SSE 流式传输）
-//     *
-//     * @param message
-//     * @param chatId
-//     * @return
-//     */
-//    public Flux<String> doChatByStream(String message, String chatId) {
-//        return chatClient
-//                .prompt()
-//                .user(message)
-//                .advisors(spec -> spec.param(ChatMemory.CONVERSATION_ID, chatId))
-//                .stream()
-//                .content();
-//    }
+    /**
+     * AI 基础对话（支持多轮对话记忆，SSE 流式传输）
+     *
+     * @param message
+     * @param chatId
+     * @return
+     */
+    public Flux<String> doChatByStream(String message, String chatId) {
+        return chatClient
+                .prompt()
+                .user(message)
+                .advisors(spec -> spec.param(ChatMemory.CONVERSATION_ID, chatId))
+                .stream()
+                .content();
+    }
 
     record LoveReport(String title, List<String> suggestions) {
 
