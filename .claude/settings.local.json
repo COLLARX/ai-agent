@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mvn compile 2>&1 | tail -50)",
+      "Bash(mvn clean compile -DskipTests 2>&1 | grep -A 5 \"ERROR\\\\|FAILURE\\\\|BUILD SUCCESS\")",
+      "Bash(mvn clean compile -DskipTests 2>&1 | tail -30)",
+      "Bash(jar -tf ~/.m2/repository/org/springframework/ai/spring-ai-pgvector-store/1.0.0/spring-ai-pgvector-store-1.0.0.jar | grep -i \"PgVector\" | grep \"\\\\.class$\")",
+      "Bash(mvn clean compile -DskipTests 2>&1 | tail -20)"
+    ]
+  }
+}
