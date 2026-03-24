@@ -18,6 +18,8 @@ import java.util.List;
 @Slf4j
 public class MemoryEnhancedAgent extends ToolCallAgent {
 
+    private static final String RECALL_CONTEXT_PREFIX = "[召回上下文]";
+
     private final MemoryService memoryService;
     private final String sessionId;
 
@@ -29,6 +31,7 @@ public class MemoryEnhancedAgent extends ToolCallAgent {
         // 复制基础属性
         this.setName(baseAgent.getName());
         this.setSystemPrompt(baseAgent.getSystemPrompt());
+        this.setNextStepPrompt(baseAgent.getNextStepPrompt());
         this.setChatClient(baseAgent.getChatClient());
         this.setMaxSteps(baseAgent.getMaxSteps());
     }
@@ -42,9 +45,14 @@ public class MemoryEnhancedAgent extends ToolCallAgent {
         // 2. 动态召回相关记忆
         String currentQuery = getNextStepPrompt();
         if (currentQuery != null && !currentQuery.isEmpty()) {
-            List<String> recalled = memoryService.recallRelevant(sessionId, currentQuery, 3);
+            // 避免重复叠加历史召回提示，先清理上一轮的召回上下文。
+            getMessageList().removeIf(message ->
+                    message instanceof SystemMessage
+                            && message.getText() != null
+                            && message.getText().startsWith(RECALL_CONTEXT_PREFIX));
+            List<String> recalled = memoryService.recallRelevantHybrid(sessionId, currentQuery, 3);
             if (!recalled.isEmpty()) {
-                String context = "相关历史记忆：\n" + String.join("\n", recalled);
+                String context = RECALL_CONTEXT_PREFIX + "\n" + String.join("\n", recalled);
                 getMessageList().add(0, new SystemMessage(context));
                 log.info("召回 {} 条历史记忆", recalled.size());
             }

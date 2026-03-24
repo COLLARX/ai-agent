@@ -1,12 +1,15 @@
 package com.yupi.yuaiagent.controller;
 
 import com.yupi.yuaiagent.agent.YuManus;
+import com.yupi.yuaiagent.agent.MemoryEnhancedAgent;
+import com.yupi.yuaiagent.memory.MemoryService;
 import com.yupi.yuaiagent.app.LoveApp;
 import jakarta.annotation.Resource;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.http.MediaType;
 import org.springframework.http.codec.ServerSentEvent;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -27,6 +30,9 @@ public class AiController {
 
     @Resource
     private ChatModel dashscopeChatModel;
+
+    @Autowired(required = false)
+    private MemoryService memoryService;
 
     /**
      * 同步调用 AI 恋爱大师应用
@@ -100,6 +106,10 @@ public class AiController {
     @GetMapping("/manus/chat")
     public SseEmitter doChatWithManus(String message) {
         YuManus yuManus = new YuManus(allTools, dashscopeChatModel);
+        // 优先启用带长期记忆和混合检索的增强 Agent。
+        if (memoryService != null) {
+            return new MemoryEnhancedAgent(yuManus, memoryService).runStream(message);
+        }
         return yuManus.runStream(message);
     }
 }

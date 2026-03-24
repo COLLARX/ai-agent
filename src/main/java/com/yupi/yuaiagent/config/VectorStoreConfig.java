@@ -6,6 +6,7 @@ import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
@@ -15,6 +16,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 public class VectorStoreConfig {
 
     @Bean
+    @Primary
     @ConditionalOnProperty(prefix = "spring.datasource", name = "url")
     public VectorStore vectorStore(JdbcTemplate jdbcTemplate, EmbeddingModel embeddingModel) {
         return PgVectorStore.builder(jdbcTemplate, embeddingModel).build();
