@@ -5,6 +5,8 @@ import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.lang.Nullable;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
@@ -31,15 +33,35 @@ import java.util.stream.Collectors;
 public class MemoryService {
 
     private static final int RRF_K = 60;
+    private static final String SESSION_KEYWORD_SQL = """
+            SELECT content, metadata
+            FROM vector_store
+            WHERE metadata::jsonb ->> 'sessionId' = ?
+              AND metadata::jsonb ->> 'sourceType' = 'chat_memory'
+              AND (
+                content ILIKE ?
+                OR EXISTS (
+                  SELECT 1
+                  FROM jsonb_array_elements_text(COALESCE(metadata::jsonb -> 'keywords', '[]'::jsonb)) kw
+                  WHERE kw ILIKE ?
+                )
+              )
+            LIMIT ?
+            """;
     private final VectorStore vectorStore;
     private final AgentKnowledgeService agentKnowledgeService;
+    @Nullable
+    private final JdbcTemplate jdbcTemplate;
     private static final int SHORT_TERM_WINDOW = 10; // 短期记忆窗口大小
     private static final int MAX_VECTOR_RECALL_CANDIDATES = 10;
     private final Map<String, List<Document>> sessionArchiveIndex = new ConcurrentHashMap<>();
 
-    public MemoryService(VectorStore vectorStore, AgentKnowledgeService agentKnowledgeService) {
+    public MemoryService(VectorStore vectorStore,
+                         AgentKnowledgeService agentKnowledgeService,
+                         @Nullable JdbcTemplate jdbcTemplate) {
         this.vectorStore = vectorStore;
         this.agentKnowledgeService = agentKnowledgeService;
+        this.jdbcTemplate = jdbcTemplate;
     }
 
     /**
@@ -120,9 +142,31 @@ public class MemoryService {
                 .build();
         List<Document> vectorCandidates = vectorStore.similaritySearch(request);
         List<ScoredDocument> vectorScored = buildVectorRanking(vectorCandidates);
-        List<Document> sessionCorpus = sessionArchiveIndex.getOrDefault(sessionId, List.of());
-        List<ScoredDocument> keywordScored = buildKeywordRanking(sessionCorpus, query, candidateTopK);
+        List<ScoredDocument> keywordScored = querySessionKeywordRanking(sessionId, query, candidateTopK);
         return mergeAndRankByRrf(vectorScored, keywordScored, topK);
+    }
+
+    private List<ScoredDocument> querySessionKeywordRanking(String sessionId, String query, int topK) {
+        List<Document> pgKeywordCandidates = querySessionKeywordCandidatesFromPg(sessionId, query, topK);
+        if (!pgKeywordCandidates.isEmpty()) {
+            return buildKeywordRanking(pgKeywordCandidates, query, topK);
+        }
+        List<Document> sessionCorpus = sessionArchiveIndex.getOrDefault(sessionId, List.of());
+        return buildKeywordRanking(sessionCorpus, query, topK);
+    }
+
+    private List<Document> querySessionKeywordCandidatesFromPg(String sessionId, String query, int topK) {
+        if (jdbcTemplate == null) {
+            return List.of();
+        }
+        String likeQuery = "%" + escapeLike(query) + "%";
+        try {
+            return jdbcTemplate.query(SESSION_KEYWORD_SQL, (rs, rowNum) -> new Document(rs.getString("content")),
+                    sessionId, likeQuery, likeQuery, topK);
+        } catch (Exception e) {
+            log.warn("PgVector 关键词检索失败，回退内存检索：{}", e.getMessage());
+            return List.of();
+        }
     }
 
     private List<ScoredDocument> buildVectorRanking(List<Document> candidates) {
@@ -289,6 +333,16 @@ public class MemoryService {
         return value == null ? "" : value.replace("'", "''");
     }
 
+    private String escapeLike(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value
+                .replace("\\", "\\\\")
+                .replace("%", "\\%")
+                .replace("_", "\\_");
+    }
+
     /**
      * 管理滑动窗口：保留最近N条，归档旧消息
      */
@@ -322,9 +376,13 @@ public class MemoryService {
 
         private Document toDocument() {
             Map<String, Object> metadata = new HashMap<>(document.getMetadata());
-            metadata.put("rank_vec", vectorRank == Integer.MAX_VALUE ? null : vectorRank);
-            metadata.put("rank_kw", keywordRank == Integer.MAX_VALUE ? null : keywordRank);
             metadata.put("score_hybrid", rrfScore);
+            if (vectorRank != Integer.MAX_VALUE) {
+                metadata.put("rank_vec", vectorRank);
+            }
+            if (keywordRank != Integer.MAX_VALUE) {
+                metadata.put("rank_kw", keywordRank);
+            }
             return new Document(document.getText(), metadata);
         }
     }

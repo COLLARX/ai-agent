@@ -7,28 +7,29 @@ import lombok.EqualsAndHashCode;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.SystemMessage;
+import org.springframework.lang.Nullable;
 
 import java.util.List;
 
 /**
- * 带记忆管理的增强 Agent
+ * Agent with short-term window management and hybrid memory recall.
  */
 @EqualsAndHashCode(callSuper = true)
 @Data
 @Slf4j
 public class MemoryEnhancedAgent extends ToolCallAgent {
 
-    private static final String RECALL_CONTEXT_PREFIX = "[召回上下文]";
+    private static final String RECALL_CONTEXT_PREFIX = "[Recall Context]";
 
+    @Nullable
     private final MemoryService memoryService;
     private final String sessionId;
 
-    public MemoryEnhancedAgent(ToolCallAgent baseAgent, MemoryService memoryService) {
+    public MemoryEnhancedAgent(ToolCallAgent baseAgent, @Nullable MemoryService memoryService) {
         super(baseAgent.getAvailableTools());
         this.memoryService = memoryService;
         this.sessionId = IdUtil.fastSimpleUUID();
 
-        // 复制基础属性
         this.setName(baseAgent.getName());
         this.setSystemPrompt(baseAgent.getSystemPrompt());
         this.setNextStepPrompt(baseAgent.getNextStepPrompt());
@@ -38,14 +39,15 @@ public class MemoryEnhancedAgent extends ToolCallAgent {
 
     @Override
     public boolean think() {
-        // 1. 管理滑动窗口
+        if (memoryService == null) {
+            return super.think();
+        }
+
         List<Message> managed = memoryService.manageMemoryWindow(sessionId, getMessageList());
         setMessageList(managed);
 
-        // 2. 动态召回相关记忆
         String currentQuery = getNextStepPrompt();
         if (currentQuery != null && !currentQuery.isEmpty()) {
-            // 避免重复叠加历史召回提示，先清理上一轮的召回上下文。
             getMessageList().removeIf(message ->
                     message instanceof SystemMessage
                             && message.getText() != null
@@ -54,11 +56,11 @@ public class MemoryEnhancedAgent extends ToolCallAgent {
             if (!recalled.isEmpty()) {
                 String context = RECALL_CONTEXT_PREFIX + "\n" + String.join("\n", recalled);
                 getMessageList().add(0, new SystemMessage(context));
-                log.info("召回 {} 条历史记忆", recalled.size());
+                log.info("Recalled {} memory items", recalled.size());
             }
         }
 
-        // 3. 执行原有思考逻辑
         return super.think();
     }
 }
+

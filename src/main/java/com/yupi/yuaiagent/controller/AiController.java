@@ -1,15 +1,11 @@
 package com.yupi.yuaiagent.controller;
 
-import com.yupi.yuaiagent.agent.YuManus;
-import com.yupi.yuaiagent.agent.MemoryEnhancedAgent;
-import com.yupi.yuaiagent.memory.MemoryService;
+import com.yupi.yuaiagent.agent.LoLoManus;
 import com.yupi.yuaiagent.app.LoveApp;
 import jakarta.annotation.Resource;
-import org.springframework.ai.chat.model.ChatModel;
-import org.springframework.ai.tool.ToolCallback;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.MediaType;
 import org.springframework.http.codec.ServerSentEvent;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -26,45 +22,18 @@ public class AiController {
     private LoveApp loveApp;
 
     @Resource
-    private ToolCallback[] allTools;
+    private ObjectProvider<LoLoManus> loLoManusProvider;
 
-    @Resource
-    private ChatModel dashscopeChatModel;
-
-    @Autowired(required = false)
-    private MemoryService memoryService;
-
-    /**
-     * 同步调用 AI 恋爱大师应用
-     *
-     * @param message
-     * @param chatId
-     * @return
-     */
     @GetMapping("/love_app/chat/sync")
     public String doChatWithLoveAppSync(String message, String chatId) {
         return loveApp.doChat(message, chatId);
     }
 
-    /**
-     * SSE 流式调用 AI 恋爱大师应用
-     *
-     * @param message
-     * @param chatId
-     * @return
-     */
     @GetMapping(value = "/love_app/chat/sse", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public Flux<String> doChatWithLoveAppSSE(String message, String chatId) {
         return loveApp.doChatByStream(message, chatId);
     }
 
-    /**
-     * SSE 流式调用 AI 恋爱大师应用
-     *
-     * @param message
-     * @param chatId
-     * @return
-     */
     @GetMapping(value = "/love_app/chat/server_sent_event")
     public Flux<ServerSentEvent<String>> doChatWithLoveAppServerSentEvent(String message, String chatId) {
         return loveApp.doChatByStream(message, chatId)
@@ -73,18 +42,9 @@ public class AiController {
                         .build());
     }
 
-    /**
-     * SSE 流式调用 AI 恋爱大师应用
-     *
-     * @param message
-     * @param chatId
-     * @return
-     */
     @GetMapping(value = "/love_app/chat/sse_emitter")
     public SseEmitter doChatWithLoveAppServerSseEmitter(String message, String chatId) {
-        // 创建一个超时时间较长的 SseEmitter
-        SseEmitter sseEmitter = new SseEmitter(180000L); // 3 分钟超时
-        // 获取 Flux 响应式数据流并且直接通过订阅推送给 SseEmitter
+        SseEmitter sseEmitter = new SseEmitter(180000L);
         loveApp.doChatByStream(message, chatId)
                 .subscribe(chunk -> {
                     try {
@@ -93,23 +53,13 @@ public class AiController {
                         sseEmitter.completeWithError(e);
                     }
                 }, sseEmitter::completeWithError, sseEmitter::complete);
-        // 返回
         return sseEmitter;
     }
 
-    /**
-     * 流式调用 Manus 超级智能体
-     *
-     * @param message
-     * @return
-     */
     @GetMapping("/manus/chat")
     public SseEmitter doChatWithManus(String message) {
-        YuManus yuManus = new YuManus(allTools, dashscopeChatModel);
-        // 优先启用带长期记忆和混合检索的增强 Agent。
-        if (memoryService != null) {
-            return new MemoryEnhancedAgent(yuManus, memoryService).runStream(message);
-        }
-        return yuManus.runStream(message);
+        LoLoManus loLoManus = loLoManusProvider.getObject();
+        return loLoManus.runStream(message);
     }
 }
+

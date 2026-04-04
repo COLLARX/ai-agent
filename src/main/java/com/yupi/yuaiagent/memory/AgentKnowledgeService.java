@@ -3,15 +3,17 @@ package com.yupi.yuaiagent.memory;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.document.Document;
-import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.ai.model.transformer.KeywordMetadataEnricher;
 import org.springframework.ai.reader.markdown.MarkdownDocumentReader;
 import org.springframework.ai.reader.markdown.config.MarkdownDocumentReaderConfig;
 import org.springframework.ai.transformer.splitter.TokenTextSplitter;
 import org.springframework.ai.vectorstore.SearchRequest;
-import org.springframework.ai.vectorstore.SimpleVectorStore;
+import org.springframework.ai.vectorstore.VectorStore;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.support.ResourcePatternResolver;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Service;
 
 import jakarta.annotation.PostConstruct;
@@ -30,43 +32,70 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * Agent 侧知识检索服务：
- * 1) Markdown 结构化切块
- * 2) 关键词元数据增强
- * 3) 向量 + 关键词混合检索
- */
+ * Agent 渚х煡璇嗘绱㈡湇鍔★細
+ * 1) Markdown 缁撴瀯鍖栧垏鍧? * 2) 鍏抽敭璇嶅厓鏁版嵁澧炲己
+ * 3) 鍚戦噺 + 鍏抽敭璇嶆贩鍚堟绱? */
 @Service
 @Slf4j
 public class AgentKnowledgeService {
 
     private static final int RRF_K = 60;
+    private static final String KNOWLEDGE_KEYWORD_SQL = """
+            SELECT content, metadata
+            FROM vector_store
+            WHERE metadata::jsonb ->> 'sourceType' = 'knowledge'
+              AND (
+                content ILIKE ?
+                OR EXISTS (
+                  SELECT 1
+                  FROM jsonb_array_elements_text(COALESCE(metadata::jsonb -> 'keywords', '[]'::jsonb)) kw
+                  WHERE kw ILIKE ?
+                )
+              )
+            LIMIT ?
+            """;
     private final ResourcePatternResolver resourcePatternResolver;
     private final ChatModel chatModel;
-    private final SimpleVectorStore vectorStore;
+    private final VectorStore vectorStore;
+    @Nullable
+    private final JdbcTemplate jdbcTemplate;
     private volatile List<Document> knowledgeCorpus = List.of();
+    @Value("${app.rag.knowledge-init.enabled:true}")
+    private boolean knowledgeInitEnabled;
 
     public AgentKnowledgeService(ResourcePatternResolver resourcePatternResolver,
                                  ChatModel dashscopeChatModel,
-                                 EmbeddingModel embeddingModel) {
+                                 VectorStore vectorStore,
+                                 @Nullable JdbcTemplate jdbcTemplate) {
         this.resourcePatternResolver = resourcePatternResolver;
         this.chatModel = dashscopeChatModel;
-        this.vectorStore = SimpleVectorStore.builder(embeddingModel).build();
+        this.vectorStore = vectorStore;
+        this.jdbcTemplate = jdbcTemplate;
     }
 
     @PostConstruct
     public void init() {
-        List<Document> markdownDocs = loadMarkdownDocuments();
-        if (markdownDocs.isEmpty()) {
-            log.warn("Agent 知识库未加载到文档，混合检索将只依赖会话记忆");
+        if (!knowledgeInitEnabled) {
+            log.info("Agent knowledge initialization is disabled by config.");
             return;
         }
-        // 先按 Token 做二次切块，保障每块语义密度。
+        List<Document> markdownDocs = loadMarkdownDocuments();
+        if (markdownDocs.isEmpty()) {
+            log.warn("Agent knowledge docs not loaded, hybrid recall will rely on session memory only.");
+            return;
+        }
+        // Split markdown docs into token chunks before embedding.
         TokenTextSplitter splitter = new TokenTextSplitter(400, 100, 10, 5000, true);
         List<Document> splitDocs = splitter.apply(markdownDocs);
         List<Document> processedDocs = enrichKeywordsSafely(splitDocs);
         this.knowledgeCorpus = processedDocs;
-        this.vectorStore.add(processedDocs);
-        log.info("Agent 知识库初始化完成，文档块数量：{}", processedDocs.size());
+        try {
+            this.vectorStore.add(processedDocs);
+        } catch (Exception e) {
+            log.warn("Agent knowledge vector preload failed, startup continues: {}", e.getMessage());
+            return;
+        }
+        log.info("Agent 鐭ヨ瘑搴撳垵濮嬪寲瀹屾垚锛屾枃妗ｅ潡鏁伴噺锛歿}", processedDocs.size());
     }
 
     public List<Document> recallHybrid(String query, int topK) {
@@ -76,12 +105,38 @@ public class AgentKnowledgeService {
         int candidateTopK = Math.max(topK * 2, 6);
 
         List<Document> vectorCandidates = vectorStore.similaritySearch(
-                SearchRequest.builder().query(query).topK(candidateTopK).build()
+                SearchRequest.builder()
+                        .query(query)
+                        .topK(candidateTopK)
+                        .filterExpression("sourceType == 'knowledge'")
+                        .build()
         );
         List<ScoredDocument> vectorScored = buildVectorRanking(vectorCandidates);
-        List<ScoredDocument> keywordScored = buildKeywordRanking(knowledgeCorpus, query, candidateTopK);
+        List<ScoredDocument> keywordScored = queryKnowledgeKeywordRanking(query, candidateTopK);
 
         return mergeAndRankByRrf(vectorScored, keywordScored, topK);
+    }
+
+    private List<ScoredDocument> queryKnowledgeKeywordRanking(String query, int topK) {
+        List<Document> pgKeywordCandidates = queryKnowledgeKeywordCandidatesFromPg(query, topK);
+        if (!pgKeywordCandidates.isEmpty()) {
+            return buildKeywordRanking(pgKeywordCandidates, query, topK);
+        }
+        return buildKeywordRanking(knowledgeCorpus, query, topK);
+    }
+
+    private List<Document> queryKnowledgeKeywordCandidatesFromPg(String query, int topK) {
+        if (jdbcTemplate == null) {
+            return List.of();
+        }
+        String likeQuery = "%" + escapeLike(query) + "%";
+        try {
+            return jdbcTemplate.query(KNOWLEDGE_KEYWORD_SQL, (rs, rowNum) -> new Document(rs.getString("content")),
+                    likeQuery, likeQuery, topK);
+        } catch (Exception e) {
+            log.warn("Agent 鐭ヨ瘑搴?PgVector 鍏抽敭璇嶆绱㈠け璐ワ紝鍥為€€鍐呭瓨妫€绱細{}", e.getMessage());
+            return List.of();
+        }
     }
 
     private List<Document> loadMarkdownDocuments() {
@@ -101,7 +156,7 @@ public class AgentKnowledgeService {
                 allDocuments.addAll(markdownDocumentReader.get());
             }
         } catch (IOException e) {
-            log.error("Agent 知识库 Markdown 文档加载失败", e);
+            log.error("Agent 鐭ヨ瘑搴?Markdown 鏂囨。鍔犺浇澶辫触", e);
         }
         return allDocuments;
     }
@@ -112,7 +167,7 @@ public class AgentKnowledgeService {
             List<Document> enrichedDocs = enricher.apply(documents);
             return enrichedDocs.stream().map(this::markKnowledgeSource).toList();
         } catch (Exception e) {
-            log.warn("关键词元数据增强失败，降级为原始文档块：{}", e.getMessage());
+            log.warn("鍏抽敭璇嶅厓鏁版嵁澧炲己澶辫触锛岄檷绾т负鍘熷鏂囨。鍧楋細{}", e.getMessage());
             return documents.stream().map(this::markKnowledgeSource).toList();
         }
     }
@@ -174,8 +229,7 @@ public class AgentKnowledgeService {
             mergeItem.keywordRank = Math.min(mergeItem.keywordRank, i + 1);
         }
         return merged.values().stream()
-                // 使用 RRF 融合不同检索通道的排名，避免分值量纲不一致。
-                .peek(item -> item.rrfScore = calculateRrfScore(item.vectorRank, item.keywordRank))
+                // 浣跨敤 RRF 铻嶅悎涓嶅悓妫€绱㈤€氶亾鐨勬帓鍚嶏紝閬垮厤鍒嗗€奸噺绾蹭笉涓€鑷淬€?                .peek(item -> item.rrfScore = calculateRrfScore(item.vectorRank, item.keywordRank))
                 .sorted(Comparator.comparingDouble((MergeItem item) -> item.rrfScore).reversed())
                 .limit(topK)
                 .map(MergeItem::toDocument)
@@ -260,6 +314,16 @@ public class AgentKnowledgeService {
         return text == null ? "" : text.trim().toLowerCase(Locale.ROOT);
     }
 
+    private String escapeLike(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value
+                .replace("\\", "\\\\")
+                .replace("%", "\\%")
+                .replace("_", "\\_");
+    }
+
     private record ScoredDocument(Document document, double score) {
     }
 
@@ -275,11 +339,17 @@ public class AgentKnowledgeService {
 
         private Document toDocument() {
             Map<String, Object> metadata = new HashMap<>(document.getMetadata());
-            metadata.put("rank_vec", vectorRank == Integer.MAX_VALUE ? null : vectorRank);
-            metadata.put("rank_kw", keywordRank == Integer.MAX_VALUE ? null : keywordRank);
             metadata.put("score_hybrid", rrfScore);
             metadata.put("sourceType", "knowledge");
+            if (vectorRank != Integer.MAX_VALUE) {
+                metadata.put("rank_vec", vectorRank);
+            }
+            if (keywordRank != Integer.MAX_VALUE) {
+                metadata.put("rank_kw", keywordRank);
+            }
             return new Document(document.getText(), metadata);
         }
     }
 }
+
+

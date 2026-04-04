@@ -9,7 +9,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 class YuManusTest {
 
     @Resource
-    private YuManus yuManus;
+    private LoLoManus loLoManus;
 
     @Test
     public void run() {
@@ -18,7 +18,7 @@ class YuManusTest {
                 并结合一些网络图片，制定一份详细的约会计划，
                 并以 PDF 格式输出
                 你应该用中文回复我""";
-        String answer = yuManus.run(userPrompt);
+        String answer = loLoManus.run(userPrompt);
         Assertions.assertNotNull(answer);
     }
 }
