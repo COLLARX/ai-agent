@@ -19,6 +19,10 @@ public class VectorStoreConfig {
     @Primary
     @ConditionalOnProperty(prefix = "spring.datasource", name = "url")
     public VectorStore vectorStore(JdbcTemplate jdbcTemplate, EmbeddingModel embeddingModel) {
-        return PgVectorStore.builder(jdbcTemplate, embeddingModel).build();
+        return PgVectorStore.builder(jdbcTemplate, embeddingModel)
+                .initializeSchema(true)
+                .schemaName("public")
+                .vectorTableName("vector_store")
+                .build();
     }
 }
