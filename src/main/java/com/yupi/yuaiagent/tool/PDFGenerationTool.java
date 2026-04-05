@@ -1,6 +1,7 @@
 package com.yupi.yuaiagent.tool;
 
 import cn.hutool.core.io.FileUtil;
+import com.itextpdf.io.font.PdfEncodings;
 import com.itextpdf.io.font.constants.StandardFonts;
 import com.itextpdf.kernel.font.PdfFont;
 import com.itextpdf.kernel.font.PdfFontFactory;
@@ -11,8 +12,12 @@ import com.itextpdf.layout.element.Paragraph;
 import com.yupi.yuaiagent.constant.FileConstant;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
+import org.commonmark.node.Node;
+import org.commonmark.parser.Parser;
+import org.commonmark.renderer.text.TextContentRenderer;
 
 import java.io.IOException;
+import java.util.List;
 
 /**
  * PDF generation tool.
@@ -31,7 +36,7 @@ public class PDFGenerationTool {
                  PdfDocument pdf = new PdfDocument(writer);
                  Document document = new Document(pdf)) {
                 document.setFont(createCompatibleFont());
-                document.add(new Paragraph(content));
+                document.add(new Paragraph(toPdfText(content)));
             }
             return "PDF generated successfully to: " + filePath;
         } catch (IOException e) {
@@ -40,7 +45,29 @@ public class PDFGenerationTool {
     }
 
     private PdfFont createCompatibleFont() throws IOException {
-        // Use a built-in font to avoid runtime failures when CJK font packages are absent.
+        List<String> candidateFonts = List.of(
+                "C:/Windows/Fonts/msyh.ttc,0",
+                "C:/Windows/Fonts/msyh.ttc",
+                "C:/Windows/Fonts/simsun.ttc,0",
+                "C:/Windows/Fonts/simsun.ttc",
+                "C:/Windows/Fonts/simhei.ttf"
+        );
+        for (String candidateFont : candidateFonts) {
+            String fontPath = candidateFont.contains(",") ? candidateFont.substring(0, candidateFont.indexOf(",")) : candidateFont;
+            if (FileUtil.exist(fontPath)) {
+                return PdfFontFactory.createFont(candidateFont, PdfEncodings.IDENTITY_H);
+            }
+        }
         return PdfFontFactory.createFont(StandardFonts.HELVETICA);
+    }
+
+    static String toPdfText(String content) {
+        if (content == null) {
+            return "";
+        }
+        Parser parser = Parser.builder().build();
+        Node document = parser.parse(content);
+        TextContentRenderer renderer = TextContentRenderer.builder().build();
+        return renderer.render(document);
     }
 }

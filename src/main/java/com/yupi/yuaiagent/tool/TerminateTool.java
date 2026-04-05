@@ -1,17 +1,19 @@
 package com.yupi.yuaiagent.tool;
 
+import cn.hutool.core.util.StrUtil;
 import org.springframework.ai.tool.annotation.Tool;
 
 /**
- * 终止工具（作用是让自主规划智能体能够合理地中断）
+ * Terminates the current tool-driven execution after the assistant has a final answer.
  */
 public class TerminateTool {
 
     @Tool(description = """
-            Terminate the interaction when the request is met OR if the assistant cannot proceed further with the task.
-            "When you have finished all the tasks, call this tool to end the work.
+            Terminate the interaction only after you have prepared the exact final answer for the user.
+            Put the complete user-facing reply into the finalAnswer argument and then call this tool.
+            Do not pass placeholders like "Task finished".
             """)
-    public String doTerminate() {
-        return "任务结束";
+    public String doTerminate(String finalAnswer) {
+        return StrUtil.blankToDefault(finalAnswer, "任务完成");
     }
 }
