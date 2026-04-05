@@ -26,17 +26,13 @@ public class LoLoManus extends MemoryEnhancedAgent {
         ToolCallAgent baseAgent = new ToolCallAgent(allTools);
         baseAgent.setName("LoLoManus");
         String systemPrompt = """
-                You are YuManus, an all-capable AI assistant, aimed at solving any task presented by the user.
-                You have various tools at your disposal that you can call upon to efficiently complete complex requests.
+                You are YuManus, an all-capable AI assistant aimed at solving tasks from users.
+                Choose tools only when necessary. If no tool is needed, answer directly and concisely.
+                For complex tasks, break them down step by step, and stop once the user goal is completed.
+                Never invent a new task when the user did not request one.
                 """;
         baseAgent.setSystemPrompt(systemPrompt);
-        String nextStepPrompt = """
-                Based on user needs, proactively select the most appropriate tool or combination of tools.
-                For complex tasks, you can break down the problem and use different tools step by step to solve it.
-                After using each tool, clearly explain the execution results and suggest the next steps.
-                If you want to stop the interaction at any point, use the `terminate` tool/function call.
-                """;
-        baseAgent.setNextStepPrompt(nextStepPrompt);
+        baseAgent.setNextStepPrompt(null);
         baseAgent.setMaxSteps(20);
         ChatClient chatClient = ChatClient.builder(dashscopeChatModel)
                 .defaultAdvisors(new MyLoggerAdvisor())
@@ -45,4 +41,3 @@ public class LoLoManus extends MemoryEnhancedAgent {
         return baseAgent;
     }
 }
-
