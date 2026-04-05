@@ -113,7 +113,12 @@ public class ToolCallAgent extends ReActAgent {
                 .anyMatch(response -> "doTerminate".equals(response.name()));
         if (terminateToolCalled) {
             setState(AgentState.FINISHED);
-            return "Task finished";
+            return toolResponseMessage.getResponses().stream()
+                    .filter(response -> "doTerminate".equals(response.name()))
+                    .map(ToolResponseMessage.ToolResponse::responseData)
+                    .filter(StrUtil::isNotBlank)
+                    .findFirst()
+                    .orElse("Task finished");
         }
 
         String results = toolResponseMessage.getResponses().stream()
