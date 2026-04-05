@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { buildUploadUrl, validateMarkdownFile } from './upload.js'
+import { buildUploadUrl, uploadMarkdownFile, validateMarkdownFile } from './upload.js'
 
 test('buildUploadUrl should normalize trailing slash', () => {
   const url = buildUploadUrl('http://localhost:8523/api/')
@@ -22,3 +22,25 @@ test('validateMarkdownFile should pass valid markdown file', () => {
   assert.equal(error, '')
 })
 
+test('uploadMarkdownFile should send userId with the markdown upload', async () => {
+  const originalFetch = globalThis.fetch
+  let capturedBody = null
+
+  globalThis.fetch = async (_url, options) => {
+    capturedBody = options.body
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({ docId: 'doc-1' })
+    }
+  }
+
+  try {
+    const file = { name: 'knowledge.md', size: 12 }
+    const result = await uploadMarkdownFile('http://localhost:8523/api/', file, 'anon-upload-user')
+    assert.equal(result.docId, 'doc-1')
+    assert.equal(capturedBody.get('userId'), 'anon-upload-user')
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})

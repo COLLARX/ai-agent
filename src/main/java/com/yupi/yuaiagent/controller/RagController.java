@@ -22,12 +22,12 @@ public class RagController {
     }
 
     @PostMapping(value = "/upload-md", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public RagKnowledgeIngestService.UploadResult uploadMarkdown(@RequestParam("file") MultipartFile file) {
+    public RagKnowledgeIngestService.UploadResult uploadMarkdown(@RequestParam("file") MultipartFile file,
+                                                                 @RequestParam("userId") String userId) {
         try {
-            return ragKnowledgeIngestService.ingestMarkdown(file);
+            return ragKnowledgeIngestService.ingestMarkdown(file, userId);
         } catch (IllegalArgumentException e) {
             throw new ResponseStatusException(BAD_REQUEST, e.getMessage());
         }
     }
 }
-

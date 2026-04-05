@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <section class="panel">
     <div class="panel-header">
       <h2>{{ title }}</h2>
@@ -24,6 +24,7 @@ import { computed, nextTick, ref } from 'vue'
 import { streamSse } from '../utils/sse'
 import { buildChatRequestUrl } from '../utils/chat'
 import { appendStreamChunk } from '../utils/message'
+import { getAnonymousUserId } from '../utils/anonymousUser'
 
 const props = defineProps({
   title: { type: String, required: true },
@@ -37,6 +38,7 @@ const loading = ref(false)
 const statusText = ref('就绪')
 const messages = ref([])
 const listEl = ref(null)
+const chatSessionId = ref(createSessionId())
 
 const statusClass = computed(() => {
   if (loading.value) return 'running'
@@ -64,7 +66,9 @@ async function handleSend() {
   await scrollToBottom()
 
   try {
-    const url = buildChatRequestUrl(props.baseUrl, props.endpoint, text)
+    const chatId = props.endpoint.includes('/manus/') ? chatSessionId.value : undefined
+    const userId = props.endpoint.includes('/manus/') ? getAnonymousUserId() : undefined
+    const url = buildChatRequestUrl(props.baseUrl, props.endpoint, text, chatId, userId)
     await streamSse(url, {
       onData: (chunk) => {
         aiMsg.content = appendStreamChunk(aiMsg.content, chunk)
@@ -84,5 +88,10 @@ async function handleSend() {
     loading.value = false
     await scrollToBottom()
   }
+}
+
+function createSessionId() {
+  const rand = Math.random().toString(36).slice(2, 10)
+  return `session-${Date.now()}-${rand}`
 }
 </script>

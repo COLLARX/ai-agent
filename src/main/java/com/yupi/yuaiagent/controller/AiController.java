@@ -57,9 +57,10 @@ public class AiController {
     }
 
     @GetMapping("/manus/chat")
-    public SseEmitter doChatWithManus(String message) {
+    public SseEmitter doChatWithManus(String message, String chatId, String userId) {
         LoLoManus loLoManus = loLoManusProvider.getObject();
+        loLoManus.bindSessionId(chatId);
+        loLoManus.bindUserId(userId);
         return loLoManus.runStream(message);
     }
 }
-

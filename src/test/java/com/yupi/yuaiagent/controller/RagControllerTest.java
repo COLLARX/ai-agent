@@ -26,11 +26,12 @@ class RagControllerTest {
     @Test
     void uploadMarkdownShouldReturnSuccessPayload() throws Exception {
         MockMultipartFile file = new MockMultipartFile("file", "k.md", "text/markdown", "# hi".getBytes());
-        Mockito.when(ragKnowledgeIngestService.ingestMarkdown(Mockito.any()))
+        Mockito.when(ragKnowledgeIngestService.ingestMarkdown(Mockito.any(), Mockito.eq("user-1")))
                 .thenReturn(new RagKnowledgeIngestService.UploadResult("doc-1", "k.md", 1, "ok"));
 
         mockMvc.perform(multipart("/rag/upload-md")
                         .file(file)
+                        .param("userId", "user-1")
                         .contentType(MULTIPART_FORM_DATA))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.docId").value("doc-1"))
@@ -41,8 +42,19 @@ class RagControllerTest {
     @Test
     void uploadMarkdownShouldReturnBadRequestWhenValidationFails() throws Exception {
         MockMultipartFile file = new MockMultipartFile("file", "k.txt", "text/plain", "x".getBytes());
-        Mockito.when(ragKnowledgeIngestService.ingestMarkdown(Mockito.any()))
+        Mockito.when(ragKnowledgeIngestService.ingestMarkdown(Mockito.any(), Mockito.any()))
                 .thenThrow(new IllegalArgumentException("Only .md files are supported"));
+
+        mockMvc.perform(multipart("/rag/upload-md")
+                        .file(file)
+                        .param("userId", "user-1")
+                        .contentType(MULTIPART_FORM_DATA))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void uploadMarkdownShouldRequireUserId() throws Exception {
+        MockMultipartFile file = new MockMultipartFile("file", "k.md", "text/markdown", "# hi".getBytes());
 
         mockMvc.perform(multipart("/rag/upload-md")
                         .file(file)
@@ -50,4 +62,3 @@ class RagControllerTest {
                 .andExpect(status().isBadRequest());
     }
 }
-

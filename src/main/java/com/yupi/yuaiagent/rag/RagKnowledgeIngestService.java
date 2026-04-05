@@ -2,6 +2,9 @@ package com.yupi.yuaiagent.rag;
 
 import org.springframework.ai.document.Document;
 import org.springframework.ai.vectorstore.VectorStore;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -19,14 +22,19 @@ public class RagKnowledgeIngestService {
 
     private static final int EMBEDDING_BATCH_LIMIT = 25;
 
-    private final VectorStore vectorStore;
+    private final ObjectProvider<VectorStore> vectorStoreProvider;
+    private final boolean privateKnowledgeEnabled;
 
-    public RagKnowledgeIngestService(VectorStore vectorStore) {
-        this.vectorStore = vectorStore;
+    public RagKnowledgeIngestService(@Qualifier("manusPrivateVectorStore") ObjectProvider<VectorStore> vectorStoreProvider,
+                                     @Value("${app.rag.manus-private.enabled:true}") boolean privateKnowledgeEnabled) {
+        this.vectorStoreProvider = vectorStoreProvider;
+        this.privateKnowledgeEnabled = privateKnowledgeEnabled;
     }
 
-    public UploadResult ingestMarkdown(MultipartFile file) {
+    public UploadResult ingestMarkdown(MultipartFile file, String userId) {
         validateMarkdownFile(file);
+        validateUserId(userId);
+        VectorStore vectorStore = resolveVectorStore();
         String fileName = safeFileName(file.getOriginalFilename());
         String content = readContent(file);
         List<String> chunks = splitMarkdown(content);
@@ -39,6 +47,7 @@ public class RagKnowledgeIngestService {
         for (int i = 0; i < chunks.size(); i++) {
             Map<String, Object> metadata = new HashMap<>();
             metadata.put("sourceType", "knowledge_upload");
+            metadata.put("userId", userId);
             metadata.put("docId", docId);
             metadata.put("fileName", fileName);
             metadata.put("uploadedAt", LocalDateTime.now().toString());
@@ -50,6 +59,23 @@ public class RagKnowledgeIngestService {
             vectorStore.add(documents.subList(i, end));
         }
         return new UploadResult(docId, fileName, documents.size(), "Upload and vectorization completed");
+    }
+
+    private VectorStore resolveVectorStore() {
+        if (!privateKnowledgeEnabled) {
+            throw new IllegalStateException("Private knowledge upload is disabled");
+        }
+        VectorStore vectorStore = vectorStoreProvider.getIfAvailable();
+        if (vectorStore == null) {
+            throw new IllegalStateException("Private vector store is unavailable");
+        }
+        return vectorStore;
+    }
+
+    private void validateUserId(String userId) {
+        if (userId == null || userId.isBlank()) {
+            throw new IllegalArgumentException("userId is required");
+        }
     }
 
     private void validateMarkdownFile(MultipartFile file) {

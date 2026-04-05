@@ -1,3 +1,5 @@
+import { getAnonymousUserId } from './anonymousUser.js'
+
 export function buildUploadUrl(baseUrl) {
   const base = String(baseUrl || '').replace(/\/$/, '')
   return `${base}/rag/upload-md`
@@ -14,13 +16,14 @@ export function validateMarkdownFile(file) {
   return ''
 }
 
-export async function uploadMarkdownFile(baseUrl, file) {
+export async function uploadMarkdownFile(baseUrl, file, userId = getAnonymousUserId()) {
   const validationError = validateMarkdownFile(file)
   if (validationError) {
     throw new Error(validationError)
   }
   const formData = new FormData()
   formData.append('file', file)
+  formData.append('userId', userId)
 
   const response = await fetch(buildUploadUrl(baseUrl), {
     method: 'POST',
@@ -38,4 +41,3 @@ export async function uploadMarkdownFile(baseUrl, file) {
   }
   return payload
 }
-

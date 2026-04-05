@@ -4,6 +4,7 @@
       <h2>知识库上传（Markdown）</h2>
       <span class="upload-status" :class="statusClass">{{ statusText }}</span>
     </div>
+    <p class="upload-note">上传知识仅增强 LoLoManus，不影响恋爱助手。</p>
     <div class="upload-row">
       <input type="file" accept=".md,text/markdown" @change="handleFileChange" />
       <button :disabled="uploading || !selectedFile" @click="handleUpload">
@@ -23,6 +24,7 @@
 <script setup>
 import { computed, ref } from 'vue'
 import { uploadMarkdownFile, validateMarkdownFile } from '../utils/upload'
+import { getAnonymousUserId } from '../utils/anonymousUser'
 
 const props = defineProps({
   baseUrl: { type: String, required: true }
@@ -67,7 +69,7 @@ async function handleUpload() {
   statusText.value = '上传中'
   result.value = null
   try {
-    const data = await uploadMarkdownFile(props.baseUrl, selectedFile.value)
+    const data = await uploadMarkdownFile(props.baseUrl, selectedFile.value, getAnonymousUserId())
     result.value = data
     statusText.value = '完成'
   } catch (e) {
@@ -78,4 +80,3 @@ async function handleUpload() {
   }
 }
 </script>
-
