@@ -22,12 +22,14 @@ test('validateMarkdownFile should pass valid markdown file', () => {
   assert.equal(error, '')
 })
 
-test('uploadMarkdownFile should send userId with the markdown upload', async () => {
+test('uploadMarkdownFile should send bearer auth with the markdown upload', async () => {
   const originalFetch = globalThis.fetch
   let capturedBody = null
+  let capturedHeaders = null
 
   globalThis.fetch = async (_url, options) => {
     capturedBody = options.body
+    capturedHeaders = options.headers
     return {
       ok: true,
       status: 200,
@@ -37,9 +39,10 @@ test('uploadMarkdownFile should send userId with the markdown upload', async () 
 
   try {
     const file = { name: 'knowledge.md', size: 12 }
-    const result = await uploadMarkdownFile('http://localhost:8523/api/', file, 'anon-upload-user')
+    const result = await uploadMarkdownFile('http://localhost:8523/api/', file, 'jwt-token')
     assert.equal(result.docId, 'doc-1')
-    assert.equal(capturedBody.get('userId'), 'anon-upload-user')
+    assert.equal(capturedBody.get('userId'), null)
+    assert.equal(capturedHeaders.Authorization, 'Bearer jwt-token')
   } finally {
     globalThis.fetch = originalFetch
   }

@@ -1,4 +1,4 @@
-import { getAnonymousUserId } from './anonymousUser.js'
+import { buildAuthHeaders } from './auth.js'
 
 export function buildUploadUrl(baseUrl) {
   const base = String(baseUrl || '').replace(/\/$/, '')
@@ -16,23 +16,25 @@ export function validateMarkdownFile(file) {
   return ''
 }
 
-export async function uploadMarkdownFile(baseUrl, file, userId = getAnonymousUserId()) {
+export async function uploadMarkdownFile(baseUrl, file, token = '') {
   const validationError = validateMarkdownFile(file)
   if (validationError) {
     throw new Error(validationError)
   }
   const formData = new FormData()
   formData.append('file', file)
-  formData.append('userId', userId)
 
   const response = await fetch(buildUploadUrl(baseUrl), {
     method: 'POST',
+    headers: {
+      ...buildAuthHeaders(token)
+    },
     body: formData
   })
   let payload = {}
   try {
     payload = await response.json()
-  } catch (e) {
+  } catch {
     payload = {}
   }
   if (!response.ok) {

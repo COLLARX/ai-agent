@@ -24,10 +24,10 @@
 <script setup>
 import { computed, ref } from 'vue'
 import { uploadMarkdownFile, validateMarkdownFile } from '../utils/upload'
-import { getAnonymousUserId } from '../utils/anonymousUser'
 
 const props = defineProps({
-  baseUrl: { type: String, required: true }
+  baseUrl: { type: String, required: true },
+  token: { type: String, default: '' }
 })
 
 const selectedFile = ref(null)
@@ -66,10 +66,10 @@ async function handleUpload() {
   if (!selectedFile.value || uploading.value) return
   uploading.value = true
   errorText.value = ''
-  statusText.value = '上传中'
+  statusText.value = '上传中...'
   result.value = null
   try {
-    const data = await uploadMarkdownFile(props.baseUrl, selectedFile.value, getAnonymousUserId())
+    const data = await uploadMarkdownFile(props.baseUrl, selectedFile.value, props.token)
     result.value = data
     statusText.value = '完成'
   } catch (e) {

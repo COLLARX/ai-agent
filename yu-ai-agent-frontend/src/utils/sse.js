@@ -1,4 +1,4 @@
-﻿export function extractDataLines(buffer) {
+export function extractDataLines(buffer) {
   const lines = buffer.split(/\r?\n/)
   const rest = lines.pop() || ''
   const events = []
@@ -12,11 +12,12 @@
   return { events, rest }
 }
 
-export async function streamSse(url, { onData, onError, onDone }) {
+export async function streamSse(url, { headers = {}, onData, onError, onDone }) {
   const response = await fetch(url, {
     method: 'GET',
     headers: {
-      Accept: 'text/event-stream'
+      Accept: 'text/event-stream',
+      ...headers
     }
   })
 
