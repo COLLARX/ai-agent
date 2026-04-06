@@ -1,7 +1,10 @@
 package com.yupi.yuaiagent.memory;
 
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
+import org.springframework.ai.chat.messages.UserMessage;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
@@ -26,13 +29,19 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 /**
- * 记忆服务：管理短期和长期记忆
+ * 璁板繂鏈嶅姟锛氱鐞嗙煭鏈熷拰闀挎湡璁板繂
  */
 @Service
 @Slf4j
 public class MemoryService {
 
     private static final int RRF_K = 60;
+    private static final String DELETE_EXPIRED_CHAT_MEMORY_SQL = """
+            DELETE FROM vector_store
+            WHERE metadata::jsonb ->> 'sourceType' = 'chat_memory'
+              AND metadata::jsonb ? 'timestamp'
+              AND CAST(metadata::jsonb ->> 'timestamp' AS timestamp) < ?
+            """;
     private static final String SESSION_KEYWORD_SQL = """
             SELECT content, metadata
             FROM vector_store
@@ -52,7 +61,9 @@ public class MemoryService {
     private final AgentKnowledgeService agentKnowledgeService;
     @Nullable
     private final JdbcTemplate jdbcTemplate;
-    private static final int SHORT_TERM_WINDOW = 10; // 短期记忆窗口大小
+    @Value("${app.memory.retention-days:5}")
+    private int retentionDays = 5;
+    private static final int SHORT_TERM_WINDOW = 10; // 鐭湡璁板繂绐楀彛澶у皬
     private static final int MAX_VECTOR_RECALL_CANDIDATES = 10;
     private final Map<String, List<Document>> sessionArchiveIndex = new ConcurrentHashMap<>();
 
@@ -65,14 +76,27 @@ public class MemoryService {
     }
 
     /**
-     * 异步向量化存储历史消息
-     */
+     * 寮傛鍚戦噺鍖栧瓨鍌ㄥ巻鍙叉秷鎭?     */
     @Async
     public void archiveToLongTerm(String sessionId, List<Message> messages) {
         if (messages.isEmpty()) return;
 
-        List<Document> documents = messages.stream()
+        int totalInputCount = messages.size();
+        List<Message> validMessages = messages.stream()
+                .filter(message -> message instanceof UserMessage || message instanceof AssistantMessage)
                 .filter(message -> message != null && message.getText() != null && !message.getText().isBlank())
+                .toList();
+        if (validMessages.isEmpty()) {
+            return;
+        }
+
+        Map<String, Message> deduplicated = new LinkedHashMap<>();
+        for (Message message : validMessages) {
+            String key = message.getMessageType().getValue() + "::" + message.getText().trim();
+            deduplicated.putIfAbsent(key, message);
+        }
+
+        List<Document> documents = deduplicated.values().stream()
                 .map(msg -> {
                     Map<String, Object> metadata = new HashMap<>();
                     metadata.put("sessionId", sessionId);
@@ -87,25 +111,40 @@ public class MemoryService {
         if (documents.isEmpty()) {
             return;
         }
+        deleteExpiredChatMemory();
         vectorStore.add(documents);
         sessionArchiveIndex.compute(sessionId, (key, oldValue) -> {
             List<Document> merged = oldValue == null ? new ArrayList<>() : new ArrayList<>(oldValue);
             merged.addAll(documents);
             return merged;
         });
-        log.info("已归档 {} 条消息到长期记忆", documents.size());
+        log.info("Archived {} messages to long-term memory. sessionId={}, input={}, valid={}, deduplicated={}",
+                documents.size(), sessionId, totalInputCount, validMessages.size(), documents.size());
+    }
+
+    private void deleteExpiredChatMemory() {
+        if (jdbcTemplate == null || retentionDays <= 0) {
+            return;
+        }
+        LocalDateTime cutoff = LocalDateTime.now().minusDays(retentionDays);
+        try {
+            int deleted = jdbcTemplate.update(DELETE_EXPIRED_CHAT_MEMORY_SQL, cutoff);
+            if (deleted > 0) {
+                log.info("Deleted {} expired chat_memory rows from vector_store", deleted);
+            }
+        } catch (Exception e) {
+            log.warn("Failed to delete expired chat_memory rows before archival: {}", e.getMessage());
+        }
     }
 
     /**
-     * 动态召回相关历史记忆
-     */
+     * 鍔ㄦ€佸彫鍥炵浉鍏冲巻鍙茶蹇?     */
     public List<String> recallRelevant(String sessionId, String query, int topK) {
         return recallRelevantHybrid(sessionId, query, topK);
     }
 
     /**
-     * 会话记忆 + 领域知识库 的混合检索召回
-     */
+     * 浼氳瘽璁板繂 + 棰嗗煙鐭ヨ瘑搴?鐨勬贩鍚堟绱㈠彫鍥?     */
     public List<String> recallRelevantHybrid(String sessionId, String query, int topK) {
         if (query == null || query.isBlank() || topK <= 0) {
             return List.of();
@@ -126,9 +165,9 @@ public class MemoryService {
                     String sourceType = String.valueOf(item.document().getMetadata()
                             .getOrDefault("sourceType", "chat_memory"));
                     if ("knowledge".equals(sourceType)) {
-                        return "[知识库] " + item.document().getText();
+                        return "[鐭ヨ瘑搴揮 " + item.document().getText();
                     }
-                    return "[历史记忆] " + item.document().getText();
+                    return "[鍘嗗彶璁板繂] " + item.document().getText();
                 })
                 .toList();
     }
@@ -164,7 +203,7 @@ public class MemoryService {
             return jdbcTemplate.query(SESSION_KEYWORD_SQL, (rs, rowNum) -> new Document(rs.getString("content")),
                     sessionId, likeQuery, likeQuery, topK);
         } catch (Exception e) {
-            log.warn("PgVector 关键词检索失败，回退内存检索：{}", e.getMessage());
+            log.warn("PgVector 鍏抽敭璇嶆绱㈠け璐ワ紝鍥為€€鍐呭瓨妫€绱細{}", e.getMessage());
             return List.of();
         }
     }
@@ -223,8 +262,7 @@ public class MemoryService {
             mergeItem.keywordRank = Math.min(mergeItem.keywordRank, i + 1);
         }
         return merged.values().stream()
-                // 使用 RRF 只依赖排名进行融合，规避不同检索通道分数不可比的问题。
-                .peek(item -> item.rrfScore = calculateRrfScore(item.vectorRank, item.keywordRank))
+                // 浣跨敤 RRF 鍙緷璧栨帓鍚嶈繘琛岃瀺鍚堬紝瑙勯伩涓嶅悓妫€绱㈤€氶亾鍒嗘暟涓嶅彲姣旂殑闂銆?                .peek(item -> item.rrfScore = calculateRrfScore(item.vectorRank, item.keywordRank))
                 .sorted(Comparator.comparingDouble((MergeItem item) -> item.rrfScore).reversed())
                 .limit(topK)
                 .map(item -> new ScoredDocument(item.toDocument(), item.rrfScore))
@@ -344,18 +382,17 @@ public class MemoryService {
     }
 
     /**
-     * 管理滑动窗口：保留最近N条，归档旧消息
-     */
+     * 绠＄悊婊戝姩绐楀彛锛氫繚鐣欐渶杩慛鏉★紝褰掓。鏃ф秷鎭?     */
     public List<Message> manageMemoryWindow(String sessionId, List<Message> allMessages) {
         if (allMessages.size() <= SHORT_TERM_WINDOW) {
             return allMessages;
         }
 
-        // 分离短期和需归档的消息
+        // 鍒嗙鐭湡鍜岄渶褰掓。鐨勬秷鎭?
         List<Message> toArchive = allMessages.subList(0, allMessages.size() - SHORT_TERM_WINDOW);
         List<Message> shortTerm = allMessages.subList(allMessages.size() - SHORT_TERM_WINDOW, allMessages.size());
 
-        // 异步归档
+        // 寮傛褰掓。
         archiveToLongTerm(sessionId, toArchive);
 
         return shortTerm;
@@ -387,3 +424,4 @@ public class MemoryService {
         }
     }
 }
+

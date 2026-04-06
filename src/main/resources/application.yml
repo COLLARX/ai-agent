@@ -58,6 +58,10 @@ knife4j:
 search-api:
   api-key: your-search-api-key
 
+app:
+  memory:
+    retention-days: 5
+
 logging:
   level:
     org.springframework.ai: info
