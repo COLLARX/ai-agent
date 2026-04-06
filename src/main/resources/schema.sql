@@ -6,6 +6,25 @@ create table if not exists love_app_conversation (
     updated_at timestamp with time zone not null default now()
 );
 
+alter table love_app_conversation
+    add column if not exists user_id varchar(64);
+
+create table if not exists app_user (
+    id varchar(64) primary key,
+    username varchar(128) not null unique,
+    password_hash varchar(255) not null,
+    created_at timestamp with time zone not null default now(),
+    updated_at timestamp with time zone not null default now()
+);
+
+alter table love_app_conversation
+    drop constraint if exists fk_love_app_conversation_user;
+
+alter table love_app_conversation
+    add constraint fk_love_app_conversation_user
+    foreign key (user_id)
+    references app_user (id);
+
 create table if not exists love_app_message (
     id bigserial primary key,
     conversation_id varchar(128) not null,
