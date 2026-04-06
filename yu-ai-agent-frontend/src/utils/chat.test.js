@@ -11,11 +11,17 @@ test('buildChatRequestUrl should append message for manus endpoint', () => {
   assert.equal(parsed.searchParams.get('userId'), 'anon-123')
 })
 
-test('buildChatRequestUrl should omit userId for love endpoint', () => {
-  const url = buildChatRequestUrl('http://localhost:8523/api/', '/ai/love_app/chat/sse', 'hi', undefined, 'anon-123')
+test('buildChatRequestUrl should keep a dedicated chatId for love endpoint', () => {
+  const url = buildChatRequestUrl('http://localhost:8523/api/', '/ai/love_app/chat/sse', 'hi', 'love-session-1', 'anon-123')
   const parsed = new URL(url)
   assert.equal(parsed.pathname, '/api/ai/love_app/chat/sse')
   assert.equal(parsed.searchParams.get('message'), 'hi')
-  assert.equal(parsed.searchParams.get('chatId'), 'love-demo')
+  assert.equal(parsed.searchParams.get('chatId'), 'love-session-1')
   assert.equal(parsed.searchParams.get('userId'), null)
+})
+
+test('buildChatRequestUrl should not inject a hard-coded love-demo chatId', () => {
+  const url = buildChatRequestUrl('http://localhost:8523/api/', '/ai/love_app/chat/sse', 'hi')
+  const parsed = new URL(url)
+  assert.equal(parsed.searchParams.get('chatId'), null)
 })

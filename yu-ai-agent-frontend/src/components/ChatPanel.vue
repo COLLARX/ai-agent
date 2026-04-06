@@ -66,7 +66,7 @@ async function handleSend() {
   await scrollToBottom()
 
   try {
-    const chatId = props.endpoint.includes('/manus/') ? chatSessionId.value : undefined
+    const chatId = chatSessionId.value
     const userId = props.endpoint.includes('/manus/') ? getAnonymousUserId() : undefined
     const url = buildChatRequestUrl(props.baseUrl, props.endpoint, text, chatId, userId)
     await streamSse(url, {
