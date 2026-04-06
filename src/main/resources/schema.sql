@@ -1,3 +1,5 @@
+create extension if not exists vector;
+
 create table if not exists love_app_conversation (
     id bigserial primary key,
     conversation_id varchar(128) not null unique,

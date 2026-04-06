@@ -71,4 +71,21 @@ class LoLoManusPersistenceWiringTest {
                 "first reply"
         );
     }
+
+    @Test
+    void cleanupShouldFailWhenUserIdIsNotBound() {
+        ChatModel chatModel = Mockito.mock(ChatModel.class);
+        ToolCallback[] tools = new ToolCallback[0];
+        ManusConversationService conversationService = Mockito.mock(ManusConversationService.class);
+        ManusPrivateKnowledgeService privateKnowledgeService = Mockito.mock(ManusPrivateKnowledgeService.class);
+
+        LoLoManus loLoManus = new LoLoManus(tools, chatModel, Mockito.mock(MemoryService.class), conversationService, privateKnowledgeService);
+        loLoManus.bindSessionId("manus-chat-3");
+        loLoManus.setMessageList(List.of(
+                new UserMessage("first turn"),
+                new AssistantMessage("first reply")
+        ));
+
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class, loLoManus::cleanup);
+    }
 }

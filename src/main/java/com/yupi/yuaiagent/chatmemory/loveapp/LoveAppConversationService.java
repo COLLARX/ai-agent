@@ -1,6 +1,7 @@
 package com.yupi.yuaiagent.chatmemory.loveapp;
 
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -14,31 +15,48 @@ public class LoveAppConversationService {
     }
 
     @Transactional
-    public void recordTurn(String conversationId, String userMessage, String assistantMessage) {
-        ensureConversationExists(conversationId);
-        lockConversation(conversationId);
+    public void recordTurn(String conversationId, String userId, String userMessage, String assistantMessage) {
+        String resolvedUserId = requireUserId(userId);
+        ensureConversationExists(conversationId, resolvedUserId);
+        String existingUserId = lockConversationAndLoadUserId(conversationId);
+        if (existingUserId == null) {
+            claimConversationOwnership(conversationId, resolvedUserId);
+            existingUserId = resolvedUserId;
+        }
+        if (!resolvedUserId.equals(existingUserId)) {
+            throw new IllegalStateException("Conversation " + conversationId + " is already bound to userId " + existingUserId);
+        }
         int nextSequenceNo = nextSequenceNo(conversationId);
         insertMessage(conversationId, "user", userMessage, nextSequenceNo);
         insertMessage(conversationId, "assistant", assistantMessage, nextSequenceNo + 1);
         touchConversation(conversationId);
     }
 
-    private void ensureConversationExists(String conversationId) {
+    private void ensureConversationExists(String conversationId, String userId) {
         jdbcTemplate.update("""
-                insert into love_app_conversation (conversation_id, title)
-                values (?, null)
+                insert into love_app_conversation (conversation_id, user_id, title)
+                values (?, ?, null)
                 on conflict (conversation_id)
                 do nothing
-                """, conversationId);
+                """, conversationId, userId);
     }
 
-    private void lockConversation(String conversationId) {
-        jdbcTemplate.queryForObject("""
-                select conversation_id
+    private String lockConversationAndLoadUserId(String conversationId) {
+        return jdbcTemplate.queryForObject("""
+                select user_id
                 from love_app_conversation
                 where conversation_id = ?
                 for update
                 """, String.class, conversationId);
+    }
+
+    private void claimConversationOwnership(String conversationId, String userId) {
+        jdbcTemplate.update("""
+                update love_app_conversation
+                set user_id = ?
+                where conversation_id = ?
+                  and user_id is null
+                """, userId, conversationId);
     }
 
     private int nextSequenceNo(String conversationId) {
@@ -63,5 +81,12 @@ public class LoveAppConversationService {
                 set updated_at = now()
                 where conversation_id = ?
                 """, conversationId);
+    }
+
+    private String requireUserId(@Nullable String userId) {
+        if (userId == null || userId.isBlank()) {
+            throw new IllegalArgumentException("userId is required");
+        }
+        return userId;
     }
 }

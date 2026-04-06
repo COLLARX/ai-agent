@@ -1,6 +1,7 @@
 package com.yupi.yuaiagent.app;
 
 import com.yupi.yuaiagent.advisor.MyLoggerAdvisor;
+import com.yupi.yuaiagent.auth.AuthContext;
 import com.yupi.yuaiagent.chatmemory.loveapp.LoveAppConversationService;
 import com.yupi.yuaiagent.rag.QueryRewriter;
 import jakarta.annotation.Resource;
@@ -75,6 +76,7 @@ public class LoveApp {
     }
 
     public String doChat(String message, String chatId) {
+        String userId = currentUserId();
         ChatResponse chatResponse = chatClient
                 .prompt()
                 .user(message)
@@ -82,23 +84,25 @@ public class LoveApp {
                 .call()
                 .chatResponse();
         String content = chatResponse.getResult().getOutput().getText();
-        persistLoveAppTurn(chatId, message, content);
+        persistLoveAppTurn(chatId, userId, message, content);
         return content;
     }
 
     public Flux<String> doChatByStream(String message, String chatId) {
+        String userId = currentUserId();
         return withStreamPersistence(chatId, message, chatClient
                 .prompt()
                 .user(message)
                 .advisors(spec -> spec.param(ChatMemory.CONVERSATION_ID, chatId))
                 .stream()
-                .content());
+                .content(), userId);
     }
 
     record LoveReport(String title, List<String> suggestions) {
     }
 
     public LoveReport doChatWithReport(String message, String chatId) {
+        String userId = currentUserId();
         LoveReport loveReport = chatClient
                 .prompt()
                 .system(SYSTEM_PROMPT + " 每次对话后都生成恋爱结果，标题为『用户名』的恋爱报告，内容为建议列表。")
@@ -107,11 +111,12 @@ public class LoveApp {
                 .call()
                 .entity(LoveReport.class);
         log.info("loveReport: {}", loveReport);
-        persistLoveAppTurn(chatId, message, String.valueOf(loveReport));
+        persistLoveAppTurn(chatId, userId, message, String.valueOf(loveReport));
         return loveReport;
     }
 
     public String doChatWithRag(String message, String chatId) {
+        String userId = currentUserId();
         String rewrittenMessage = queryRewriter.doQueryRewrite(message);
         ChatResponse chatResponse = chatClient
                 .prompt()
@@ -122,11 +127,12 @@ public class LoveApp {
                 .call()
                 .chatResponse();
         String content = chatResponse.getResult().getOutput().getText();
-        persistLoveAppTurn(chatId, message, content);
+        persistLoveAppTurn(chatId, userId, message, content);
         return content;
     }
 
     public String doChatWithTools(String message, String chatId) {
+        String userId = currentUserId();
         ChatResponse chatResponse = chatClient
                 .prompt()
                 .user(message)
@@ -137,11 +143,12 @@ public class LoveApp {
                 .chatResponse();
         String content = chatResponse.getResult().getOutput().getText();
         log.info("content: {}", content);
-        persistLoveAppTurn(chatId, message, content);
+        persistLoveAppTurn(chatId, userId, message, content);
         return content;
     }
 
     public String doChatWithMcp(String message, String chatId) {
+        String userId = currentUserId();
         ChatResponse chatResponse = chatClient
                 .prompt()
                 .user(message)
@@ -152,26 +159,39 @@ public class LoveApp {
                 .chatResponse();
         String content = chatResponse.getResult().getOutput().getText();
         log.info("content: {}", content);
-        persistLoveAppTurn(chatId, message, content);
+        persistLoveAppTurn(chatId, userId, message, content);
         return content;
     }
 
-    private void persistLoveAppTurn(String chatId, String userMessage, String assistantMessage) {
+    private void persistLoveAppTurn(String chatId, String userId, String userMessage, String assistantMessage) {
         if (loveAppConversationService == null) {
             return;
         }
-        loveAppConversationService.recordTurn(chatId, userMessage, assistantMessage);
+        loveAppConversationService.recordTurn(
+                chatId,
+                userId,
+                userMessage,
+                assistantMessage
+        );
     }
 
     Flux<String> withStreamPersistence(String chatId, String userMessage, Flux<String> assistantStream) {
+        return withStreamPersistence(chatId, userMessage, assistantStream, currentUserId());
+    }
+
+    Flux<String> withStreamPersistence(String chatId, String userMessage, Flux<String> assistantStream, String userId) {
         StringBuilder assistantText = new StringBuilder();
         AtomicBoolean persisted = new AtomicBoolean(false);
         return assistantStream
                 .doOnNext(assistantText::append)
                 .doFinally(signalType -> {
                     if (persisted.compareAndSet(false, true)) {
-                        persistLoveAppTurn(chatId, userMessage, assistantText.toString());
+                        persistLoveAppTurn(chatId, userId, userMessage, assistantText.toString());
                     }
                 });
+    }
+
+    private String currentUserId() {
+        return AuthContext.requireCurrentUser().id();
     }
 }

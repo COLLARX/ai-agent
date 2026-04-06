@@ -3,10 +3,8 @@ package com.yupi.yuaiagent.chatmemory.manus;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.core.io.ClassPathResource;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
-import org.springframework.jdbc.datasource.init.ResourceDatabasePopulator;
 
 import javax.sql.DataSource;
 import java.util.List;
@@ -37,7 +35,7 @@ class ManusConversationServiceTest {
                 "123456"
         );
         jdbcTemplate = new JdbcTemplate(dataSource);
-        new ResourceDatabasePopulator(new ClassPathResource("schema.sql")).execute(dataSource);
+        initializeSchema();
     }
 
     @AfterEach
@@ -98,5 +96,40 @@ class ManusConversationServiceTest {
                 where conversation_id = ?
                 """, Integer.class, "manus-chat-2");
         assertThat(messageCount).isEqualTo(2);
+    }
+
+    @Test
+    void recordTurnShouldRejectMissingUserId() {
+        ManusConversationService service = new ManusConversationService(jdbcTemplate);
+
+        assertThrows(IllegalArgumentException.class,
+                () -> service.recordTurn("manus-chat-3", "   ", "first turn", "first reply"));
+    }
+
+    private void initializeSchema() {
+        jdbcTemplate.execute("""
+                create table if not exists manus_conversation (
+                    id bigserial primary key,
+                    conversation_id varchar(128) not null unique,
+                    user_id varchar(128) not null,
+                    title varchar(255),
+                    created_at timestamp with time zone not null default now(),
+                    updated_at timestamp with time zone not null default now()
+                )
+                """);
+        jdbcTemplate.execute("""
+                create table if not exists manus_message (
+                    id bigserial primary key,
+                    conversation_id varchar(128) not null,
+                    role varchar(32) not null,
+                    content text not null,
+                    sequence_no integer not null,
+                    created_at timestamp with time zone not null default now(),
+                    constraint fk_manus_message_conversation
+                        foreign key (conversation_id)
+                        references manus_conversation (conversation_id)
+                        on delete cascade
+                )
+                """);
     }
 }

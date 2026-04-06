@@ -8,8 +8,6 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class ManusConversationService {
 
-    private static final String DEFAULT_USER_ID = "anonymous";
-
     private final JdbcTemplate jdbcTemplate;
 
     public ManusConversationService(JdbcTemplate jdbcTemplate) {
@@ -18,7 +16,7 @@ public class ManusConversationService {
 
     @Transactional
     public void recordTurn(String conversationId, String userId, String userMessage, String assistantMessage) {
-        String resolvedUserId = resolveUserId(userId);
+        String resolvedUserId = requireUserId(userId);
         ensureConversationExists(conversationId, resolvedUserId);
         String existingUserId = lockConversationAndLoadUserId(conversationId);
         if (!resolvedUserId.equals(existingUserId)) {
@@ -28,11 +26,6 @@ public class ManusConversationService {
         insertMessage(conversationId, "user", userMessage, nextSequenceNo);
         insertMessage(conversationId, "assistant", assistantMessage, nextSequenceNo + 1);
         touchConversation(conversationId);
-    }
-
-    @Transactional
-    public void recordTurn(String conversationId, String userMessage, String assistantMessage) {
-        recordTurn(conversationId, DEFAULT_USER_ID, userMessage, assistantMessage);
     }
 
     private void ensureConversationExists(String conversationId, String userId) {
@@ -77,9 +70,9 @@ public class ManusConversationService {
                 """, conversationId);
     }
 
-    private String resolveUserId(@Nullable String userId) {
+    private String requireUserId(@Nullable String userId) {
         if (userId == null || userId.isBlank()) {
-            return DEFAULT_USER_ID;
+            throw new IllegalArgumentException("userId is required");
         }
         return userId;
     }
