@@ -15,6 +15,14 @@ public final class AuthContext {
         return CURRENT_USER.get();
     }
 
+    public static AuthenticatedUser requireCurrentUser() {
+        AuthenticatedUser currentUser = getCurrentUser();
+        if (currentUser == null) {
+            throw new IllegalStateException("No authenticated user in context");
+        }
+        return currentUser;
+    }
+
     public static void clear() {
         CURRENT_USER.remove();
     }

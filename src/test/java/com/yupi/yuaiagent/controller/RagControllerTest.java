@@ -41,7 +41,6 @@ class RagControllerTest {
 
         mockMvc.perform(multipart("/rag/upload-md")
                         .file(file)
-                        .param("userId", "user-1")
                         .header("Authorization", "Bearer token-1")
                         .contentType(MULTIPART_FORM_DATA))
                 .andExpect(status().isOk())
@@ -60,15 +59,16 @@ class RagControllerTest {
 
         mockMvc.perform(multipart("/rag/upload-md")
                         .file(file)
-                        .param("userId", "user-1")
                         .header("Authorization", "Bearer token-1")
                         .contentType(MULTIPART_FORM_DATA))
                 .andExpect(status().isBadRequest());
     }
 
     @Test
-    void uploadMarkdownShouldRequireUserId() throws Exception {
+    void uploadMarkdownShouldUseAuthenticatedUserId() throws Exception {
         MockMultipartFile file = new MockMultipartFile("file", "k.md", "text/markdown", "# hi".getBytes());
+        Mockito.when(ragKnowledgeIngestService.ingestMarkdown(Mockito.any(), Mockito.eq("user-1")))
+                .thenReturn(new RagKnowledgeIngestService.UploadResult("doc-2", "k.md", 1, "ok"));
         Mockito.when(authService.me("token-1"))
                 .thenReturn(new AuthService.UserInfo("user-1", "alice"));
 
@@ -76,7 +76,8 @@ class RagControllerTest {
                         .file(file)
                         .header("Authorization", "Bearer token-1")
                         .contentType(MULTIPART_FORM_DATA))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.docId").value("doc-2"));
     }
 
     @Test

@@ -1,5 +1,7 @@
 package com.yupi.yuaiagent.controller;
 
+import com.yupi.yuaiagent.auth.AuthContext;
+import com.yupi.yuaiagent.auth.AuthenticatedUser;
 import com.yupi.yuaiagent.rag.RagKnowledgeIngestService;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -22,10 +24,10 @@ public class RagController {
     }
 
     @PostMapping(value = "/upload-md", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public RagKnowledgeIngestService.UploadResult uploadMarkdown(@RequestParam("file") MultipartFile file,
-                                                                 @RequestParam("userId") String userId) {
+    public RagKnowledgeIngestService.UploadResult uploadMarkdown(@RequestParam("file") MultipartFile file) {
+        AuthenticatedUser currentUser = AuthContext.requireCurrentUser();
         try {
-            return ragKnowledgeIngestService.ingestMarkdown(file, userId);
+            return ragKnowledgeIngestService.ingestMarkdown(file, currentUser.id());
         } catch (IllegalArgumentException e) {
             throw new ResponseStatusException(BAD_REQUEST, e.getMessage());
         }
