@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.http.HttpMethod;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 
@@ -87,6 +88,18 @@ class AuthInterceptorTest {
         assertThat(allowed).isTrue();
         assertThat(response.getStatus()).isEqualTo(HttpServletResponse.SC_OK);
         assertThat(AuthContext.getCurrentUser()).isEqualTo(new AuthenticatedUser("user-1", "alice"));
+    }
+
+    @Test
+    void preHandleShouldAllowOptionsPreflightWithoutToken() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest(HttpMethod.OPTIONS.name(), "/ai/manus/chat");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        boolean allowed = authInterceptor.preHandle(request, response, new Object());
+
+        assertThat(allowed).isTrue();
+        assertThat(response.getStatus()).isEqualTo(HttpServletResponse.SC_OK);
+        assertThat(AuthContext.getCurrentUser()).isNull();
     }
 
     @Test
