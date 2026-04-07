@@ -58,6 +58,12 @@ knife4j:
 search-api:
   api-key: your-search-api-key
 
+app:
+  auth:
+    jwt-secret: ${JWT_SECRET:${random.uuid}}
+  memory:
+    retention-days: 5
+
 logging:
   level:
     org.springframework.ai: info

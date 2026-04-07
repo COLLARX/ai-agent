@@ -11,6 +11,7 @@ import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.lang.Nullable;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -25,12 +26,14 @@ public class MemoryEnhancedAgent extends ToolCallAgent {
 
     @Nullable
     private final MemoryService memoryService;
-    private final String sessionId;
+    private String sessionId;
+    private volatile boolean archivedInCleanup;
 
     public MemoryEnhancedAgent(ToolCallAgent baseAgent, @Nullable MemoryService memoryService) {
         super(baseAgent.getAvailableTools());
         this.memoryService = memoryService;
         this.sessionId = IdUtil.fastSimpleUUID();
+        this.archivedInCleanup = false;
 
         this.setName(baseAgent.getName());
         this.setSystemPrompt(baseAgent.getSystemPrompt());
@@ -42,27 +45,56 @@ public class MemoryEnhancedAgent extends ToolCallAgent {
     @Override
     public boolean think() {
         if (memoryService == null) {
+            setMessageList(new ArrayList<>(getMessageList()));
+            beforeModelCall();
             return super.think();
         }
 
-        List<Message> managed = memoryService.manageMemoryWindow(sessionId, getMessageList());
+        List<Message> managed = new ArrayList<>(memoryService.manageMemoryWindow(sessionId, getMessageList()));
         setMessageList(managed);
 
         String currentQuery = latestUserMessageText();
         if (StrUtil.isNotBlank(currentQuery)) {
-            getMessageList().removeIf(message ->
+            managed.removeIf(message ->
                     message instanceof SystemMessage
                             && message.getText() != null
                             && message.getText().startsWith(RECALL_CONTEXT_PREFIX));
             List<String> recalled = memoryService.recallRelevantHybrid(sessionId, currentQuery, 3);
             if (!recalled.isEmpty()) {
                 String context = RECALL_CONTEXT_PREFIX + "\n" + String.join("\n", recalled);
-                getMessageList().add(0, new SystemMessage(context));
+                managed.add(0, new SystemMessage(context));
                 log.info("Recalled {} memory items", recalled.size());
             }
+            setMessageList(managed);
         }
 
+        beforeModelCall();
         return super.think();
+    }
+
+    protected void beforeModelCall() {
+        // Subclasses can inject extra context here right before the model call.
+    }
+
+    public void bindSessionId(@Nullable String externalSessionId) {
+        if (StrUtil.isNotBlank(externalSessionId)) {
+            this.sessionId = externalSessionId;
+            this.archivedInCleanup = false;
+        }
+    }
+
+    @Override
+    protected void cleanup() {
+        if (memoryService == null || archivedInCleanup) {
+            return;
+        }
+        synchronized (this) {
+            if (archivedInCleanup) {
+                return;
+            }
+            memoryService.archiveToLongTerm(sessionId, getMessageList());
+            archivedInCleanup = true;
+        }
     }
 
     private String latestUserMessageText() {

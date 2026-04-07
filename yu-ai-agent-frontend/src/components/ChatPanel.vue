@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <section class="panel">
     <div class="panel-header">
       <h2>{{ title }}</h2>
@@ -21,14 +21,15 @@
 
 <script setup>
 import { computed, nextTick, ref } from 'vue'
-import { streamSse } from '../utils/sse'
-import { buildChatRequestUrl } from '../utils/chat'
+import { buildChatRequest } from '../utils/chat'
 import { appendStreamChunk } from '../utils/message'
+import { streamSse } from '../utils/sse'
 
 const props = defineProps({
   title: { type: String, required: true },
   endpoint: { type: String, required: true },
   baseUrl: { type: String, required: true },
+  token: { type: String, default: '' },
   placeholder: { type: String, default: '' }
 })
 
@@ -37,6 +38,7 @@ const loading = ref(false)
 const statusText = ref('就绪')
 const messages = ref([])
 const listEl = ref(null)
+const chatSessionId = ref(createSessionId())
 
 const statusClass = computed(() => {
   if (loading.value) return 'running'
@@ -56,7 +58,7 @@ async function handleSend() {
   if (!text || loading.value) return
 
   loading.value = true
-  statusText.value = '连接中'
+  statusText.value = '连接中...'
   messages.value.push({ id: Date.now() + '-u', role: 'user', content: text })
   const aiMsg = { id: Date.now() + '-a', role: 'assistant', content: '' }
   messages.value.push(aiMsg)
@@ -64,11 +66,12 @@ async function handleSend() {
   await scrollToBottom()
 
   try {
-    const url = buildChatRequestUrl(props.baseUrl, props.endpoint, text)
-    await streamSse(url, {
+    const request = buildChatRequest(props.baseUrl, props.endpoint, text, chatSessionId.value, props.token)
+    await streamSse(request.url, {
+      headers: request.headers,
       onData: (chunk) => {
         aiMsg.content = appendStreamChunk(aiMsg.content, chunk)
-        statusText.value = '响应中'
+        statusText.value = '响应中...'
         scrollToBottom()
       },
       onError: (err) => {
@@ -84,5 +87,10 @@ async function handleSend() {
     loading.value = false
     await scrollToBottom()
   }
+}
+
+function createSessionId() {
+  const rand = Math.random().toString(36).slice(2, 10)
+  return `session-${Date.now()}-${rand}`
 }
 </script>

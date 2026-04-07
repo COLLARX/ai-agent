@@ -2,6 +2,8 @@ package com.yupi.yuaiagent.controller;
 
 import com.yupi.yuaiagent.agent.LoLoManus;
 import com.yupi.yuaiagent.app.LoveApp;
+import com.yupi.yuaiagent.auth.AuthContext;
+import com.yupi.yuaiagent.auth.AuthenticatedUser;
 import jakarta.annotation.Resource;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.MediaType;
@@ -57,9 +59,11 @@ public class AiController {
     }
 
     @GetMapping("/manus/chat")
-    public SseEmitter doChatWithManus(String message) {
+    public SseEmitter doChatWithManus(String message, String chatId) {
+        AuthenticatedUser currentUser = AuthContext.requireCurrentUser();
         LoLoManus loLoManus = loLoManusProvider.getObject();
+        loLoManus.bindSessionId(chatId);
+        loLoManus.bindUserId(currentUser.id());
         return loLoManus.runStream(message);
     }
 }
-

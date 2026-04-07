@@ -1,3 +1,5 @@
+import { buildAuthHeaders } from './auth.js'
+
 export function buildUploadUrl(baseUrl) {
   const base = String(baseUrl || '').replace(/\/$/, '')
   return `${base}/rag/upload-md`
@@ -14,7 +16,7 @@ export function validateMarkdownFile(file) {
   return ''
 }
 
-export async function uploadMarkdownFile(baseUrl, file) {
+export async function uploadMarkdownFile(baseUrl, file, token = '') {
   const validationError = validateMarkdownFile(file)
   if (validationError) {
     throw new Error(validationError)
@@ -24,12 +26,15 @@ export async function uploadMarkdownFile(baseUrl, file) {
 
   const response = await fetch(buildUploadUrl(baseUrl), {
     method: 'POST',
+    headers: {
+      ...buildAuthHeaders(token)
+    },
     body: formData
   })
   let payload = {}
   try {
     payload = await response.json()
-  } catch (e) {
+  } catch {
     payload = {}
   }
   if (!response.ok) {
@@ -38,4 +43,3 @@ export async function uploadMarkdownFile(baseUrl, file) {
   }
   return payload
 }
-
