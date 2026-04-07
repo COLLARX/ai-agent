@@ -8,8 +8,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class ToolCallAgentRoutingTest {
 
     @Test
-    void shouldRequireToolForPdfRequest() {
-        assertTrue(ToolCallAgent.requiresToolCall("生成一份学习计划PDF"));
+    void shouldRequireToolForPdfAndSearchRequest() {
+        assertTrue(ToolCallAgent.requiresToolCall("生成一份学习计划 PDF"));
+        assertTrue(ToolCallAgent.requiresToolCall("帮我搜索一下上海约会地点"));
         assertTrue(ToolCallAgent.requiresToolCall("please download a file"));
     }
 

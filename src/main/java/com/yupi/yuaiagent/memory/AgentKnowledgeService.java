@@ -32,9 +32,11 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * Agent 渚х煡璇嗘绱㈡湇鍔★細
- * 1) Markdown 缁撴瀯鍖栧垏鍧? * 2) 鍏抽敭璇嶅厓鏁版嵁澧炲己
- * 3) 鍚戦噺 + 鍏抽敭璇嶆贩鍚堟绱? */
+ * Agent 知识检索服务：
+ * 1) Markdown 结构化切块
+ * 2) 关键词元数据增强
+ * 3) 向量 + 关键词混合检索
+ */
 @Service
 @Slf4j
 public class AgentKnowledgeService {
@@ -95,7 +97,7 @@ public class AgentKnowledgeService {
             log.warn("Agent knowledge vector preload failed, startup continues: {}", e.getMessage());
             return;
         }
-        log.info("Agent 鐭ヨ瘑搴撳垵濮嬪寲瀹屾垚锛屾枃妗ｅ潡鏁伴噺锛歿}", processedDocs.size());
+        log.info("Agent 知识库初始化完成，文档块数量：{}", processedDocs.size());
     }
 
     public List<Document> recallHybrid(String query, int topK) {
@@ -134,7 +136,7 @@ public class AgentKnowledgeService {
             return jdbcTemplate.query(KNOWLEDGE_KEYWORD_SQL, (rs, rowNum) -> new Document(rs.getString("content")),
                     likeQuery, likeQuery, topK);
         } catch (Exception e) {
-            log.warn("Agent 鐭ヨ瘑搴?PgVector 鍏抽敭璇嶆绱㈠け璐ワ紝鍥為€€鍐呭瓨妫€绱細{}", e.getMessage());
+            log.warn("Agent 知识库 PgVector 关键词检索失败，回退到内存检索：{}", e.getMessage());
             return List.of();
         }
     }
@@ -156,7 +158,7 @@ public class AgentKnowledgeService {
                 allDocuments.addAll(markdownDocumentReader.get());
             }
         } catch (IOException e) {
-            log.error("Agent 鐭ヨ瘑搴?Markdown 鏂囨。鍔犺浇澶辫触", e);
+            log.error("Agent 知识库 Markdown 文档加载失败", e);
         }
         return allDocuments;
     }
@@ -167,7 +169,7 @@ public class AgentKnowledgeService {
             List<Document> enrichedDocs = enricher.apply(documents);
             return enrichedDocs.stream().map(this::markKnowledgeSource).toList();
         } catch (Exception e) {
-            log.warn("鍏抽敭璇嶅厓鏁版嵁澧炲己澶辫触锛岄檷绾т负鍘熷鏂囨。鍧楋細{}", e.getMessage());
+            log.warn("关键词元数据增强失败，降级为原始文档块：{}", e.getMessage());
             return documents.stream().map(this::markKnowledgeSource).toList();
         }
     }
@@ -229,7 +231,8 @@ public class AgentKnowledgeService {
             mergeItem.keywordRank = Math.min(mergeItem.keywordRank, i + 1);
         }
         return merged.values().stream()
-                // 浣跨敤 RRF 铻嶅悎涓嶅悓妫€绱㈤€氶亾鐨勬帓鍚嶏紝閬垮厤鍒嗗€奸噺绾蹭笉涓€鑷淬€?                .peek(item -> item.rrfScore = calculateRrfScore(item.vectorRank, item.keywordRank))
+                // 使用 RRF 融合不同检索通道的排名，避免分值量纲不一致。
+                .peek(item -> item.rrfScore = calculateRrfScore(item.vectorRank, item.keywordRank))
                 .sorted(Comparator.comparingDouble((MergeItem item) -> item.rrfScore).reversed())
                 .limit(topK)
                 .map(MergeItem::toDocument)

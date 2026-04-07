@@ -29,7 +29,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 /**
- * 璁板繂鏈嶅姟锛氱鐞嗙煭鏈熷拰闀挎湡璁板繂
+ * 记忆服务：管理短期和长期记忆
  */
 @Service
 @Slf4j
@@ -63,7 +63,7 @@ public class MemoryService {
     private final JdbcTemplate jdbcTemplate;
     @Value("${app.memory.retention-days:5}")
     private int retentionDays = 5;
-    private static final int SHORT_TERM_WINDOW = 10; // 鐭湡璁板繂绐楀彛澶у皬
+    private static final int SHORT_TERM_WINDOW = 10; // 短期记忆窗口大小
     private static final int MAX_VECTOR_RECALL_CANDIDATES = 10;
     private final Map<String, List<Document>> sessionArchiveIndex = new ConcurrentHashMap<>();
 
@@ -76,7 +76,8 @@ public class MemoryService {
     }
 
     /**
-     * 寮傛鍚戦噺鍖栧瓨鍌ㄥ巻鍙叉秷鎭?     */
+     * 异步向量化存储历史消息
+     */
     @Async
     public void archiveToLongTerm(String sessionId, List<Message> messages) {
         if (messages.isEmpty()) return;
@@ -138,13 +139,15 @@ public class MemoryService {
     }
 
     /**
-     * 鍔ㄦ€佸彫鍥炵浉鍏冲巻鍙茶蹇?     */
+     * 动态召回相关历史记忆
+     */
     public List<String> recallRelevant(String sessionId, String query, int topK) {
         return recallRelevantHybrid(sessionId, query, topK);
     }
 
     /**
-     * 浼氳瘽璁板繂 + 棰嗗煙鐭ヨ瘑搴?鐨勬贩鍚堟绱㈠彫鍥?     */
+     * 会话记忆 + 领域知识库的混合检索召回
+     */
     public List<String> recallRelevantHybrid(String sessionId, String query, int topK) {
         if (query == null || query.isBlank() || topK <= 0) {
             return List.of();
@@ -165,9 +168,9 @@ public class MemoryService {
                     String sourceType = String.valueOf(item.document().getMetadata()
                             .getOrDefault("sourceType", "chat_memory"));
                     if ("knowledge".equals(sourceType)) {
-                        return "[鐭ヨ瘑搴揮 " + item.document().getText();
+                        return "[知识库] " + item.document().getText();
                     }
-                    return "[鍘嗗彶璁板繂] " + item.document().getText();
+                    return "[历史记忆] " + item.document().getText();
                 })
                 .toList();
     }
@@ -203,7 +206,7 @@ public class MemoryService {
             return jdbcTemplate.query(SESSION_KEYWORD_SQL, (rs, rowNum) -> new Document(rs.getString("content")),
                     sessionId, likeQuery, likeQuery, topK);
         } catch (Exception e) {
-            log.warn("PgVector 鍏抽敭璇嶆绱㈠け璐ワ紝鍥為€€鍐呭瓨妫€绱細{}", e.getMessage());
+            log.warn("PgVector 关键词检索失败，回退到内存检索：{}", e.getMessage());
             return List.of();
         }
     }
@@ -262,7 +265,8 @@ public class MemoryService {
             mergeItem.keywordRank = Math.min(mergeItem.keywordRank, i + 1);
         }
         return merged.values().stream()
-                // 浣跨敤 RRF 鍙緷璧栨帓鍚嶈繘琛岃瀺鍚堬紝瑙勯伩涓嶅悓妫€绱㈤€氶亾鍒嗘暟涓嶅彲姣旂殑闂銆?                .peek(item -> item.rrfScore = calculateRrfScore(item.vectorRank, item.keywordRank))
+                // 使用 RRF 只依赖排名进行融合，规避不同检索通道分数不可比的问题。
+                .peek(item -> item.rrfScore = calculateRrfScore(item.vectorRank, item.keywordRank))
                 .sorted(Comparator.comparingDouble((MergeItem item) -> item.rrfScore).reversed())
                 .limit(topK)
                 .map(item -> new ScoredDocument(item.toDocument(), item.rrfScore))
@@ -382,17 +386,18 @@ public class MemoryService {
     }
 
     /**
-     * 绠＄悊婊戝姩绐楀彛锛氫繚鐣欐渶杩慛鏉★紝褰掓。鏃ф秷鎭?     */
+     * 管理滑动窗口：保留最近 N 条，归档旧消息
+     */
     public List<Message> manageMemoryWindow(String sessionId, List<Message> allMessages) {
         if (allMessages.size() <= SHORT_TERM_WINDOW) {
             return allMessages;
         }
 
-        // 鍒嗙鐭湡鍜岄渶褰掓。鐨勬秷鎭?
+        // 分离短期消息和待归档消息
         List<Message> toArchive = allMessages.subList(0, allMessages.size() - SHORT_TERM_WINDOW);
         List<Message> shortTerm = allMessages.subList(allMessages.size() - SHORT_TERM_WINDOW, allMessages.size());
 
-        // 寮傛褰掓。
+        // 异步归档
         archiveToLongTerm(sessionId, toArchive);
 
         return shortTerm;

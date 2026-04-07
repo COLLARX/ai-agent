@@ -94,6 +94,32 @@ class LoLoManusArchitectureTest {
         Assertions.assertTrue(loLoManus.getMessageList().get(1).getText().startsWith(RECALL_PREFIX));
     }
 
+    @Test
+    void thinkShouldSendReadableChineseSystemPrompt() {
+        ChatModel chatModel = Mockito.mock(ChatModel.class);
+        Mockito.when(chatModel.call(Mockito.any(Prompt.class)))
+                .thenReturn(new ChatResponse(List.of(new Generation(new AssistantMessage("final answer")))));
+
+        LoLoManus loLoManus = new LoLoManus(
+                new ToolCallback[0],
+                chatModel,
+                null,
+                Mockito.mock(ManusConversationService.class),
+                Mockito.mock(ManusPrivateKnowledgeService.class)
+        );
+        loLoManus.bindSessionId("session-readable");
+        loLoManus.bindUserId("user-readable");
+        loLoManus.setMessageList(new ArrayList<>(List.of(new UserMessage("你好"))));
+
+        loLoManus.think();
+
+        ArgumentCaptor<Prompt> promptCaptor = ArgumentCaptor.forClass(Prompt.class);
+        Mockito.verify(chatModel).call(promptCaptor.capture());
+        String firstInstruction = promptCaptor.getValue().getInstructions().getFirst().getText();
+        Assertions.assertTrue(firstInstruction.contains("你是 LoLoManus"));
+        Assertions.assertTrue(firstInstruction.contains("默认使用中文回答"));
+    }
+
     private int indexOfPrefix(List<Message> messages, String prefix) {
         for (int i = 0; i < messages.size(); i++) {
             Message message = messages.get(i);

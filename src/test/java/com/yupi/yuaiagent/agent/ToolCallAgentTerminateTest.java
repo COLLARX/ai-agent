@@ -26,7 +26,7 @@ class ToolCallAgentTerminateTest {
         ReflectionTestUtils.setField(agent, "toolCallingManager", toolCallingManager);
 
         ToolResponseMessage toolResponseMessage = new ToolResponseMessage(List.of(
-                new ToolResponseMessage.ToolResponse("call-1", "doTerminate", "这是整理好的最终答复")
+                new ToolResponseMessage.ToolResponse("call-1", "doTerminate", "这是整理好的最终答案")
         ));
         Mockito.when(toolCallingManager.executeToolCalls(Mockito.any(), Mockito.same(chatResponse)))
                 .thenReturn(DefaultToolExecutionResult.builder()
@@ -36,6 +36,6 @@ class ToolCallAgentTerminateTest {
 
         String result = agent.act();
 
-        assertEquals("这是整理好的最终答复", result);
+        assertEquals("这是整理好的最终答案", result);
     }
 }
